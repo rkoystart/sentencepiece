@@ -30,7 +30,7 @@ option(SPM_ENABLE_TENSORFLOW_SHARED "Makes a tensorflow compatible shared file."
 option(SPM_ENABLE_TCMALLOC "Enable TCMalloc if available." ON)
 option(SPM_TCMALLOC_STATIC "Link static library of TCMALLOC." OFF)
 option(SPM_NO_THREADLOCAL "Disable thread_local operator" OFF)
-option(SPM_ENABLE_MSVC_MT_BUILD, "Use /MT flag in MSVC build" OFF)
+option(SPM_ENABLE_MSVC_MT_BUILD, "Use /MT flag in MSVC build" ON)
 option(SPM_CROSS_SYSTEM_PROCESSOR, "Override system processor" "")
 
 set(SPM_PROTOBUF_PROVIDER "internal" CACHE STRING "Provider of protobuf library")
