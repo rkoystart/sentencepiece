@@ -12,24 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.!
 
-if (SPM_ABSL_PROVIDER STREQUAL "module" OR SPM_ABSL_PROVIDER STREQUAL "package")
+if (SPM_USE_EXTERNAL_ABSL)
   set(ABSL_FLAGS_SRCS "")
   set(ABSL_STRINGS_SRCS "")
   list(APPEND SPM_LIBS absl::strings)
   list(APPEND SPM_LIBS absl::flags)
   list(APPEND SPM_LIBS absl::flags_parse)
-  list(APPEND SPM_LIBS absl::log)
-  list(APPEND SPM_LIBS absl::check)
   if (MSVC)
    add_definitions("/D_USE_EXTERNAL_ABSL")
   else()
    add_definitions("-D_USE_EXTERNAL_ABSL")
   endif()
-elseif (SPM_ABSL_PROVIDER STREQUAL "internal")
+else()
   set(ABSL_FLAGS_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/absl/flags/flag.cc)
+  set(ABSL_STRINGS_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/absl/strings/string_view.cc)
 endif()
 
-if (SPM_PROTOBUF_PROVIDER STREQUAL "internal")
+if (SPM_USE_BUILTIN_PROTOBUF)
   set(SPM_PROTO_HDRS builtin_pb/sentencepiece.pb.h)
   set(SPM_PROTO_SRCS builtin_pb/sentencepiece.pb.cc)
   set(SPM_MODEL_PROTO_HDRS builtin_pb/sentencepiece_model.pb.h)
@@ -65,22 +64,17 @@ if (SPM_PROTOBUF_PROVIDER STREQUAL "internal")
   if (MSVC)
     add_definitions("/DHAVE_PTHREAD /wd4018 /wd4514")
   else()
-    add_definitions("-pthread -DHAVE_PTHREAD=1 -Wno-sign-compare -Wno-deprecated-declarations")
+    add_definitions("-pthread -DHAVE_PTHREAD=1 -Wno-sign-compare")
   endif()
   include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/protobuf-lite)
   include_directories(builtin_pb)
-elseif (SPM_PROTOBUF_PROVIDER STREQUAL "package")
+else()
   find_package(Protobuf REQUIRED)
   include_directories(${Protobuf_INCLUDE_DIRS})
   protobuf_generate_cpp(SPM_PROTO_SRCS SPM_PROTO_HDRS sentencepiece.proto)
   protobuf_generate_cpp(SPM_MODEL_PROTO_SRCS SPM_MODEL_PROTO_HDRS sentencepiece_model.proto)
   set(PROTOBUF_LITE_SRCS "")
   include_directories(${PROTOBUF_INCLUDE_DIR})
-  if (MSVC)
-    add_definitions("/D_USE_EXTERNAL_PROTOBUF")
-  else()
-    add_definitions("-D_USE_EXTERNAL_PROTOBUF")
-  endif()
 endif()
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
@@ -206,28 +200,9 @@ if (SPM_ENABLE_TCMALLOC)
   endif()
 endif()
 
-if ((${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "mips") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "m68k") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "ppc") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "powerpc") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch") OR
-    (${CMAKE_SYSTEM_PROCESSOR} MATCHES "sh4"))
-  find_library(ATOMIC_LIB NAMES atomic libatomic.so libatomic.so.1)
-  if (ATOMIC_LIB)
-    message(STATUS "Found atomic: ${ATOMIC_LIB}")
-    list(APPEND SPM_LIBS "atomic")
-  endif()
-endif()
-
-
 if (SPM_ENABLE_SHARED)
   add_library(sentencepiece SHARED ${SPM_SRCS})
   add_library(sentencepiece_train SHARED ${SPM_TRAIN_SRCS})
-  if (ANDROID)
-    target_link_libraries(sentencepiece log)
-    target_link_libraries(sentencepiece_train log)
-  endif()
 endif()
 
 add_library(sentencepiece-static STATIC ${SPM_SRCS})
@@ -239,6 +214,13 @@ target_link_libraries(sentencepiece_train-static INTERFACE sentencepiece-static 
 if (SPM_ENABLE_SHARED)
   target_link_libraries(sentencepiece ${SPM_LIBS})
   target_link_libraries(sentencepiece_train ${SPM_LIBS} sentencepiece)
+  if ((${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7l") OR
+      (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "mips") OR
+      (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "m68k") OR
+      (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "ppc") OR
+      (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "sh4"))
+    list(APPEND SPM_LIBS "atomic")
+  endif()
   set(SPM_INSTALLTARGETS sentencepiece sentencepiece_train sentencepiece-static sentencepiece_train-static)
   set_target_properties(sentencepiece sentencepiece_train PROPERTIES SOVERSION 0 VERSION 0.0.0)
   set_target_properties(sentencepiece PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS YES)
@@ -303,23 +285,14 @@ endif()
 list(APPEND SPM_INSTALLTARGETS
   spm_encode spm_decode spm_normalize spm_train spm_export_vocab)
 
-if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
-  install(TARGETS ${SPM_INSTALLTARGETS}
-    BUNDLE DESTINATION ${CMAKE_INSTALL_BINDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-else()
 install(TARGETS ${SPM_INSTALLTARGETS}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-
 install(FILES sentencepiece_trainer.h sentencepiece_processor.h
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-if (NOT SPM_PROTOBUF_PROVIDER STREQUAL "internal")
-  install(FILES ${SPM_PROTO_HDRS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  DESTINATION ${CMAKE_INSTALL_INCDIR})
+if (NOT SPM_USE_BUILTIN_PROTOBUF)
+  install(FILES ${SPM_PROTO_HDRS} DESTINATION ${CMAKE_INSTALL_INCDIR})
 endif()
 
 file(TO_NATIVE_PATH "${PROJECT_SOURCE_DIR}/data" data_dir)
@@ -336,6 +309,7 @@ if (SPM_BUILD_TEST OR SPM_COVERAGE)
 
   set(MEMORYCHECK_COMMAND_OPTIONS "--leak-check=full --show-leak-kinds=definite,possible --error-exitcode=1")
   find_program(CTEST_MEMORYCHECK_COMMAND NAMES valgrind)
+  include(Dart)
 
   add_test(NAME sentencepiece_test
     COMMAND $<TARGET_FILE:spm_test> --test_srcdir=${data_dir})
@@ -350,12 +324,4 @@ if (SPM_COVERAGE)
     COMMAND mkdir -p lcov_html
     COMMAND genhtml -o lcov_html coverage.info)
   add_dependencies(coverage spm_test)
-endif()
-
-if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
-  set_xcode_property(spm_encode PRODUCT_BUNDLE_IDENTIFIER "SentencePiece" All)
-  set_xcode_property(spm_decode PRODUCT_BUNDLE_IDENTIFIER "SentencePiece" All)
-  set_xcode_property(spm_normalize PRODUCT_BUNDLE_IDENTIFIER "SentencePiece" All)
-  set_xcode_property(spm_train PRODUCT_BUNDLE_IDENTIFIER "SentencePiece" All)
-  set_xcode_property(spm_export_vocab PRODUCT_BUNDLE_IDENTIFIER "SentencePiece" All)
 endif()
